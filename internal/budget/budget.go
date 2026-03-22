@@ -5,7 +5,7 @@ package budget
 
 import (
 	"fmt"
-	"log"
+	"log/slog"
 	"time"
 
 	"github.com/safety-quotient-lab/agentd/internal/db"
@@ -164,7 +164,7 @@ func (m *Manager) RecordAction(actionType, description string, tier int) error {
 		 VALUES (?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%S', 'now', 'localtime'))`,
 		m.agentID, actionType, description, status.Spent, newSpent)
 	if err != nil {
-		log.Printf("[budget] warning: failed to record action: %v", err)
+		slog.Warn("failed to record action", "component", "budget", "error", err)
 	}
 
 	return nil

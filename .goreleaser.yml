@@ -1,0 +1,39 @@
+version: 2
+
+project_name: agentd
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: agentd
+    main: ./cmd/agentd/
+    binary: agentd
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+      - -X main.commit={{.ShortCommit}}
+      - -X main.date={{.Date}}
+
+archives:
+  - id: agentd
+    formats: ['tar.gz']
+    name_template: "{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}"
+
+checksum:
+  name_template: "checksums.txt"
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-dev"
+
+changelog:
+  disable: true

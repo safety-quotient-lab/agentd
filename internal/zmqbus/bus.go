@@ -13,7 +13,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"strings"
 	"sync"
@@ -77,7 +77,7 @@ func (b *Bus) Start() error {
 	if err := b.pub.Listen(b.pubAddr); err != nil {
 		return fmt.Errorf("zmq pub listen %s: %w", b.pubAddr, err)
 	}
-	log.Printf("[zmq] PUB listening on %s", b.pubAddr)
+	slog.Info("PUB listening", "component", "zmq", "address", b.pubAddr)
 
 	// Periodic gossip heartbeat — ensures bidirectional discovery.
 	// When B connects to A and subscribes, A's heartbeat reaches B,
@@ -109,7 +109,7 @@ func (b *Bus) Stop() {
 	if b.pub != nil {
 		b.pub.Close()
 	}
-	log.Printf("[zmq] stopped")
+	slog.Info("stopped", "component", "zmq")
 }
 
 // OnMessage registers a handler for incoming messages.
@@ -157,7 +157,7 @@ func (b *Bus) ConnectPeer(info PeerInfo) error {
 	pc := &peerConn{info: info, sub: sub}
 	b.peers[info.AgentID] = pc
 
-	log.Printf("[zmq] connected to peer %s at %s", info.AgentID, info.ZMQPub)
+	slog.Info("connected to peer", "component", "zmq", "peer", info.AgentID, "address", info.ZMQPub)
 
 	// Start receiving in background
 	go b.recvLoop(pc)
@@ -199,7 +199,7 @@ func (b *Bus) recvLoop(pc *peerConn) {
 			if b.ctx.Err() != nil {
 				return // shutting down
 			}
-			log.Printf("[zmq] recv error from %s: %v", pc.info.AgentID, err)
+			slog.Warn("recv error", "component", "zmq", "peer", pc.info.AgentID, "error", err)
 			time.Sleep(time.Second)
 			continue
 		}
@@ -215,7 +215,7 @@ func (b *Bus) recvLoop(pc *peerConn) {
 
 		var m Message
 		if err := json.Unmarshal([]byte(payload), &m); err != nil {
-			log.Printf("[zmq] unmarshal error from %s: %v", pc.info.AgentID, err)
+			slog.Warn("unmarshal error", "component", "zmq", "peer", pc.info.AgentID, "error", err)
 			continue
 		}
 
@@ -269,7 +269,7 @@ func (b *Bus) RegisterPeer(info PeerInfo) bool {
 		return false
 	}
 
-	log.Printf("[zmq] register: new peer %s at %s (via HTTP)", info.AgentID, info.ZMQPub)
+	slog.Info("register: new peer via HTTP", "component", "zmq", "peer", info.AgentID, "address", info.ZMQPub)
 	go b.ConnectPeer(info)
 	return true
 }
@@ -294,11 +294,11 @@ func (b *Bus) reverseRegister(peer PeerInfo) {
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		log.Printf("[zmq] reverse-register to %s failed: %v", peer.AgentID, err)
+		slog.Warn("reverse-register failed", "component", "zmq", "peer", peer.AgentID, "error", err)
 		return
 	}
 	resp.Body.Close()
-	log.Printf("[zmq] reverse-registered with %s", peer.AgentID)
+	slog.Info("reverse-registered", "component", "zmq", "peer", peer.AgentID)
 }
 
 // handleGossip processes a peer announcement and connects to unknown peers.
@@ -325,7 +325,7 @@ func (b *Bus) handleGossip(m Message) {
 		b.mu.RUnlock()
 
 		if !known {
-			log.Printf("[zmq] gossip: discovered new peer %s at %s", p.AgentID, p.ZMQPub)
+			slog.Info("gossip: discovered new peer", "component", "zmq", "peer", p.AgentID, "address", p.ZMQPub)
 			go b.ConnectPeer(p)
 		}
 	}

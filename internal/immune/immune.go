@@ -10,7 +10,7 @@ package immune
 
 import (
 	"fmt"
-	"log"
+	"log/slog"
 
 	"github.com/safety-quotient-lab/agentd/internal/db"
 )
@@ -45,8 +45,9 @@ func RunInnateChecks(database *db.DB, projectRoot string) []InnateCheck {
 
 	if len(findings) > 0 {
 		for _, f := range findings {
-			log.Printf("[immune] %s: %s [%s] %s",
-				f.Severity, f.Name, passedStr(f.Passed), f.Detail)
+			slog.Warn("immune check finding", "component", "immune",
+				"severity", f.Severity, "name", f.Name,
+				"passed", f.Passed, "detail", f.Detail)
 		}
 	}
 

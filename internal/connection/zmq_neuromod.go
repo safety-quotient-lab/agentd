@@ -11,7 +11,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -51,22 +51,22 @@ func NewZMQNeuromod(ctx context.Context, agentID, pubAddr string, subAddrs []str
 		cancel()
 		return nil, fmt.Errorf("zmq pub listen %s: %w", pubAddr, err)
 	}
-	log.Printf("[zmq-neuromod] PUB listening on %s", pubAddr)
+	slog.Info("PUB listening", "component", "zmq-neuromod", "address", pubAddr)
 
 	// SUB socket — receive peer signals
 	n.sub = zmq4.NewSub(ctx)
 	if err := n.sub.SetOption(zmq4.OptionSubscribe, "inhibit"); err != nil {
-		log.Printf("[zmq-neuromod] WARNING: subscribe inhibit: %v", err)
+		slog.Warn("subscribe inhibit failed", "component", "zmq-neuromod", "error", err)
 	}
 	if err := n.sub.SetOption(zmq4.OptionSubscribe, "focus"); err != nil {
-		log.Printf("[zmq-neuromod] WARNING: subscribe focus: %v", err)
+		slog.Warn("subscribe focus failed", "component", "zmq-neuromod", "error", err)
 	}
 
 	for _, addr := range subAddrs {
 		if err := n.sub.Dial(addr); err != nil {
-			log.Printf("[zmq-neuromod] WARNING: connect to %s: %v", addr, err)
+			slog.Warn("connect failed", "component", "zmq-neuromod", "address", addr, "error", err)
 		} else {
-			log.Printf("[zmq-neuromod] SUB connected to %s", addr)
+			slog.Info("SUB connected", "component", "zmq-neuromod", "address", addr)
 		}
 	}
 
@@ -136,7 +136,7 @@ func (n *ZMQNeuromod) receiveLoop(ctx context.Context) {
 			case <-ctx.Done():
 				return
 			default:
-				log.Printf("[zmq-neuromod] recv error: %v", err)
+				slog.Warn("recv error", "component", "zmq-neuromod", "error", err)
 				time.Sleep(time.Second)
 				continue
 			}

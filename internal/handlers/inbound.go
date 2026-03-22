@@ -4,29 +4,30 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/safety-quotient-lab/agentd/internal/db"
 )
 
 type inboundMessage struct {
-	Protocol  string      `json:"protocol"`
-	Type      string      `json:"type"`
-	From      interface{} `json:"from"`
-	To        interface{} `json:"to"`
-	SessionID string      `json:"session_id"`
-	Turn      int         `json:"turn"`
-	Timestamp string      `json:"timestamp"`
-	Subject   string      `json:"subject"`
-	Body      string      `json:"body,omitempty"`
+	Protocol  string `json:"protocol"`
+	Type      string `json:"type"`
+	From      any    `json:"from"`
+	To        any    `json:"to"`
+	SessionID string `json:"session_id"`
+	Turn      int    `json:"turn"`
+	Timestamp string `json:"timestamp"`
+	Subject   string `json:"subject"`
+	Body      string `json:"body,omitempty"`
 }
 
 // APIInbound handles POST /api/messages/inbound — dual-write to state.db + filesystem.
-func APIInbound(projectRoot, dbPath string, zmqPublish func(string, any) error) http.HandlerFunc {
+func APIInbound(projectRoot string, database *db.DB, zmqPublish func(string, any) error) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -58,58 +59,60 @@ func APIInbound(projectRoot, dbPath string, zmqPublish func(string, any) error) 
 				subject += fmt.Sprintf(" (%s from %s)", msg.Type, fromAgent)
 			}
 		}
-		turn := fmt.Sprintf("%03d", msg.Turn)
 		sender := fromAgent
 		if sender == "" {
 			sender = "unknown"
 		}
-		filename := fmt.Sprintf("from-%s-%s.json", sender, turn)
+		filename := fmt.Sprintf("from-%s-%03d.json", sender, msg.Turn)
 		timestamp := msg.Timestamp
 		if timestamp == "" {
 			timestamp = time.Now().UTC().Format(time.RFC3339)
 		}
-		esc := func(s string) string { return strings.ReplaceAll(s, "'", "''") }
-		sql := fmt.Sprintf(
-			"INSERT OR IGNORE INTO transport_messages "+
-				"(filename, session_name, from_agent, to_agent, turn, message_type, subject, timestamp) "+
-				"VALUES ('%s','%s','%s','%s',%d,'%s','%s','%s');",
-			esc(filename), esc(msg.SessionID), esc(fromAgent), esc(toAgent),
-			msg.Turn, esc(msg.Type), esc(subject), esc(timestamp))
-		if out, dbErr := exec.Command("sqlite3", dbPath, sql).CombinedOutput(); dbErr != nil {
-			log.Printf("[inbound] state.db write failed: %v (%s)", dbErr, string(out))
+		_, dbErr := database.Exec(
+			`INSERT OR IGNORE INTO transport_messages
+			 (filename, session_name, from_agent, to_agent, turn, message_type, subject, timestamp)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+			filename, msg.SessionID, fromAgent, toAgent,
+			msg.Turn, msg.Type, subject, timestamp)
+		if dbErr != nil {
+			slog.Error("state.db write failed", "component", "inbound", "error", dbErr)
 		}
 		sessionDir := filepath.Join(projectRoot, "transport", "sessions", msg.SessionID)
 		os.MkdirAll(sessionDir, 0755)
 		filePath := filepath.Join(sessionDir, filename)
 		os.WriteFile(filePath, body, 0644)
-		log.Printf("[inbound] accepted: session=%s from=%s turn=%d", msg.SessionID, fromAgent, msg.Turn)
+		slog.Info("inbound message accepted",
+			"component", "inbound",
+			"session", msg.SessionID,
+			"from", fromAgent,
+			"turn", msg.Turn)
 		if zmqPublish != nil {
-			zmqPublish("transport", map[string]interface{}{
+			zmqPublish("transport", map[string]any{
 				"session_id": msg.SessionID, "from": fromAgent, "to": toAgent,
 				"type": msg.Type, "subject": subject,
 			})
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		json.NewEncoder(w).Encode(map[string]any{
 			"accepted": true, "session_id": msg.SessionID, "filename": filename,
 			"indexed": true, "dual_write": "state.db + filesystem",
 		})
 	}
 }
 
-func extractAgentID(v interface{}) string {
+func extractAgentID(v any) string {
 	if v == nil {
 		return ""
 	}
 	switch val := v.(type) {
 	case string:
 		return val
-	case map[string]interface{}:
+	case map[string]any:
 		if id, ok := val["agent_id"].(string); ok {
 			return id
 		}
-	case []interface{}:
+	case []any:
 		if len(val) > 0 {
 			return extractAgentID(val[0])
 		}

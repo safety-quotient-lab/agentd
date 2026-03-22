@@ -1,11 +1,13 @@
 package handlers
 
 import (
+	"context"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // LocalReplay serves GET /replays/{filename} — local replay HTML files.
@@ -54,7 +56,9 @@ func RemoteReplay(projectRoot string) http.HandlerFunc {
 		}
 
 		ref := remoteName + "/main:docs/replays/" + filename
-		out, err := exec.Command("git", "-C", projectRoot, "show", ref).Output()
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		out, err := exec.CommandContext(ctx, "git", "-C", projectRoot, "show", ref).Output()
 		if err != nil || len(out) == 0 {
 			http.NotFound(w, r)
 			return

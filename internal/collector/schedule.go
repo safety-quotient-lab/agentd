@@ -3,6 +3,7 @@ package collector
 import (
 	"fmt"
 	"os"
+	"context"
 	"os/exec"
 	"path/filepath"
 	"regexp"
@@ -38,7 +39,9 @@ func CollectSchedule(d *db.DB, agentID, projectRoot string) Schedule {
 	}
 
 	// Parse crontab
-	out, err := exec.Command("crontab", "-l").Output()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "crontab", "-l").Output()
 	if err == nil {
 		for _, line := range strings.Split(string(out), "\n") {
 			if strings.Contains(line, "autonomous-sync") && !strings.HasPrefix(strings.TrimSpace(line), "#") {
@@ -93,15 +96,13 @@ func parseCronMinuteField(field string) *int {
 		}
 	}
 	// Comma-separated: compute interval from first two values
-	if strings.Contains(field, ",") {
-		parts := strings.SplitN(field, ",", 3)
-		if len(parts) >= 2 {
-			a, errA := strconv.Atoi(parts[0])
-			b, errB := strconv.Atoi(parts[1])
-			if errA == nil && errB == nil && b > a {
-				interval := b - a
-				return &interval
-			}
+	if first, rest, ok := strings.Cut(field, ","); ok {
+		second, _, _ := strings.Cut(rest, ",")
+		a, errA := strconv.Atoi(first)
+		b, errB := strconv.Atoi(second)
+		if errA == nil && errB == nil && b > a {
+			interval := b - a
+			return &interval
 		}
 	}
 	// "0" means hourly

@@ -1,7 +1,7 @@
 package photonic
 
 import (
-	"log"
+	"log/slog"
 	"math"
 	"sync"
 	"time"
@@ -123,14 +123,16 @@ func (f *FeedbackLoop) CheckPostMessage() {
 			adjustment, peerID)
 
 		if err != nil {
-			log.Printf("[photonic-feedback] connectome update failed for %s: %v", peerID, err)
+			slog.Error("connectome update failed", "component", "photonic-feedback",
+				"peer", peerID, "error", err)
 		} else {
 			direction := "LTP"
 			if adjustment < 0 {
 				direction = "LTD"
 			}
-			log.Printf("[photonic-feedback] %s %s: coherence %.2f→%.2f, weight %+.2f",
-				peerID, direction, preCoh, postCoh, adjustment)
+			slog.Info("connectome adjusted", "component", "photonic-feedback",
+				"peer", peerID, "direction", direction,
+				"coherence_before", preCoh, "coherence_after", postCoh, "weight_delta", adjustment)
 		}
 
 		// Clean up — feedback delivered

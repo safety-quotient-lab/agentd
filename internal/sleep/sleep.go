@@ -11,7 +11,7 @@
 package sleep
 
 import (
-	"log"
+	"log/slog"
 	"time"
 
 	"github.com/safety-quotient-lab/agentd/internal/db"
@@ -120,33 +120,33 @@ type Cycle struct {
 // REM: Gc-only pattern replay (no Gf by default).
 // Glymphatic: archive closed sessions, rotate logs, prune stale entries.
 func RunConsolidation(database *db.DB, projectRoot string) error {
-	log.Printf("[sleep] === consolidation cycle starting ===")
+	slog.Info("consolidation cycle starting", "component", "sleep")
 
 	// NREM Deep: prune and strengthen
-	log.Printf("[sleep] NREM deep: pruning trigger_activations")
+	slog.Info("NREM deep: pruning trigger_activations", "component", "sleep")
 	pruned, _ := database.Exec(
 		`DELETE FROM trigger_activations
 		 WHERE timestamp < datetime('now', '-48 hours')`)
-	log.Printf("[sleep] NREM deep: pruned %d old activations", pruned)
+	slog.Info("NREM deep: pruned old activations", "component", "sleep", "pruned", pruned)
 
 	// NREM Deep: reconcile memory staleness
 	stale := database.ScalarInt(
 		`SELECT COUNT(*) FROM memory_entries
 		 WHERE last_confirmed < datetime('now', '-5 days')`)
 	if stale > 0 {
-		log.Printf("[sleep] NREM deep: %d stale memory entries detected", stale)
+		slog.Info("NREM deep: stale memory entries detected", "component", "sleep", "stale", stale)
 	}
 
 	// REM: Gc-only pattern replay (query for cross-session patterns)
-	log.Printf("[sleep] REM: Gc pattern replay (cross-referencing recent sessions)")
+	slog.Info("REM: Gc pattern replay", "component", "sleep")
 	// Query lessons and decisions for reinforcement
 	recentLessons := database.ScalarInt(
 		`SELECT COUNT(*) FROM lessons
 		 WHERE lesson_date > datetime('now', '-7 days')`)
-	log.Printf("[sleep] REM: %d recent lessons available for replay", recentLessons)
+	slog.Info("REM: recent lessons available for replay", "component", "sleep", "lessons", recentLessons)
 
 	// Glymphatic: archive closed sessions
-	log.Printf("[sleep] glymphatic: clearance pass")
+	slog.Info("glymphatic: clearance pass", "component", "sleep")
 	// Count closed sessions eligible for archival
 	closedSessions := database.ScalarInt(
 		`SELECT COUNT(DISTINCT session_name) FROM transport_messages
@@ -155,7 +155,7 @@ func RunConsolidation(database *db.DB, projectRoot string) error {
 		     GROUP BY session_name
 		     HAVING MAX(processed) = 1
 		 )`)
-	log.Printf("[sleep] glymphatic: %d sessions eligible for archival", closedSessions)
+	slog.Info("glymphatic: sessions eligible for archival", "component", "sleep", "sessions", closedSessions)
 
 	// Record trait accumulation data
 	database.Exec(
@@ -164,6 +164,6 @@ func RunConsolidation(database *db.DB, projectRoot string) error {
 		     (SELECT usage_count + 1 FROM mode_traits WHERE coupling_mode = 'sleep'),
 		     1), datetime('now', 'localtime'))`)
 
-	log.Printf("[sleep] === consolidation cycle complete ===")
+	slog.Info("consolidation cycle complete", "component", "sleep")
 	return nil
 }

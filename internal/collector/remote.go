@@ -1,11 +1,13 @@
 package collector
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/safety-quotient-lab/agentd/internal/registry"
 )
@@ -39,12 +41,14 @@ func CollectRemoteStates(reg *registry.Registry, projectRoot string) []map[strin
 	}
 
 	// Remote repos via git show
+	gitCtx, gitCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer gitCancel()
 	for agentID, cfg := range reg.Agents {
 		if cfg.Transport != "cross-repo-fetch" || cfg.RemoteName == "" {
 			continue
 		}
 		meshPath := "transport/sessions/local-coordination/mesh-state-" + agentID + ".json"
-		out, err := exec.Command(
+		out, err := exec.CommandContext(gitCtx,
 			"git", "-C", projectRoot, "show",
 			cfg.RemoteName+"/main:"+meshPath,
 		).Output()
@@ -75,11 +79,13 @@ func CollectRemoteReplays(reg *registry.Registry, projectRoot string) []RemoteRe
 		return results
 	}
 
+	replayCtx, replayCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer replayCancel()
 	for agentID, cfg := range reg.Agents {
 		if cfg.Transport != "cross-repo-fetch" || cfg.RemoteName == "" {
 			continue
 		}
-		out, err := exec.Command(
+		out, err := exec.CommandContext(replayCtx,
 			"git", "-C", projectRoot, "ls-tree",
 			"--name-only", cfg.RemoteName+"/main", "docs/replays/",
 		).Output()

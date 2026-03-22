@@ -2,7 +2,7 @@ package handlers
 
 import (
 	"html/template"
-	"log"
+	"log/slog"
 	"net/http"
 
 	"github.com/safety-quotient-lab/agentd/internal/collector"
@@ -15,7 +15,7 @@ func LCARSDashboard(cache *collector.Cache, tmpl *template.Template) http.Handle
 		status := cache.Status()
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		if err := tmpl.ExecuteTemplate(w, "layout.html", status); err != nil {
-			log.Printf("template render error: %v", err)
+			slog.Error("template render failed", "error", err)
 			http.Error(w, "render failed", http.StatusInternalServerError)
 		}
 	}

@@ -2,7 +2,7 @@ package oscillator
 
 import (
 	"context"
-	"log"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -79,8 +79,10 @@ func New(config Config, database *db.DB) *Oscillator {
 
 // Run starts the oscillator loop. Blocks until context cancels.
 func (o *Oscillator) Run(ctx context.Context) {
-	log.Printf("[oscillator] starting (threshold=%.2f, monitor=%s)",
-		o.config.BaselineThreshold, o.config.MonitorInterval)
+	slog.Info("oscillator starting",
+		"component", "oscillator",
+		"threshold", o.config.BaselineThreshold,
+		"monitor_interval", o.config.MonitorInterval)
 
 	ticker := time.NewTicker(o.config.MonitorInterval)
 	defer ticker.Stop()
@@ -88,7 +90,7 @@ func (o *Oscillator) Run(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
-			log.Printf("[oscillator] shutting down")
+			slog.Info("oscillator shutting down", "component", "oscillator")
 			return
 		case <-ticker.C:
 			o.tick(ctx)
@@ -107,14 +109,14 @@ func (o *Oscillator) tick(ctx context.Context) {
 		switch o.config.ManualSessionBehavior {
 		case "dmn":
 			if o.state != StateDMN {
-				log.Printf("[oscillator] manual session detected — entering DMN")
+				slog.Info("manual session detected — entering DMN", "component", "oscillator")
 				o.state = StateDMN
 				o.coupling = ModeFreeAssociating
 			}
 			return // Gc continues via Gm operations; Gf defers
 		case "sedate":
 			if o.state != StateSedated {
-				log.Printf("[oscillator] manual session detected — entering sedation")
+				slog.Info("manual session detected — entering sedation", "component", "oscillator")
 				o.state = StateSedated
 				o.coupling = ModeSuppressed
 			}
@@ -123,7 +125,7 @@ func (o *Oscillator) tick(ctx context.Context) {
 		}
 	} else if o.state == StateDMN || o.state == StateSedated {
 		// Manual session ended — return to active
-		log.Printf("[oscillator] manual session ended — returning to active")
+		slog.Info("manual session ended — returning to active", "component", "oscillator")
 		o.state = StateActive
 		o.coupling = ModeTaskBalanced
 	}
@@ -132,8 +134,10 @@ func (o *Oscillator) tick(ctx context.Context) {
 	inputs := o.readCoherenceInputs()
 	o.coherence = ComputeCoherence(inputs)
 	if o.coherence < CoherenceThreshold {
-		log.Printf("[oscillator] coherence %.2f below threshold %.2f — suppressing",
-			o.coherence, CoherenceThreshold)
+		slog.Warn("coherence below threshold — suppressing",
+			"component", "oscillator",
+			"coherence", o.coherence,
+			"threshold", CoherenceThreshold)
 		return // higher layers fail when substrate incoherent
 	}
 
@@ -146,13 +150,16 @@ func (o *Oscillator) tick(ctx context.Context) {
 
 	// 5. Fire if activation exceeds current threshold
 	if activation > o.threshold {
-		log.Printf("[oscillator] FIRE activation=%.2f threshold=%.2f coherence=%.2f",
-			activation, o.threshold, o.coherence)
+		slog.Info("oscillator FIRE",
+			"component", "oscillator",
+			"activation", activation,
+			"threshold", o.threshold,
+			"coherence", o.coherence)
 
 		if o.FireFunc != nil {
 			o.state = StateActive
 			if err := o.FireFunc(ctx); err != nil {
-				log.Printf("[oscillator] fire error: %v", err)
+				slog.Error("fire error", "component", "oscillator", "error", err)
 			}
 		}
 

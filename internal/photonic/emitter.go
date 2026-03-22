@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -64,19 +64,19 @@ func NewEmitter(config Config, database *db.DB) (*Emitter, error) {
 		cancel()
 		return nil, fmt.Errorf("zmq-b pub listen %s: %w", config.PubAddr, err)
 	}
-	log.Printf("[photonic] PUB listening on %s", config.PubAddr)
+	slog.Info("PUB listening", "component", "photonic", "address", config.PubAddr)
 
 	// ZMQ-B SUB socket
 	e.sub = zmq4.NewSub(ctx)
 	if err := e.sub.SetOption(zmq4.OptionSubscribe, "photonic"); err != nil {
-		log.Printf("[photonic] WARNING: subscribe: %v", err)
+		slog.Warn("subscribe failed", "component", "photonic", "error", err)
 	}
 
 	for _, addr := range config.SubAddrs {
 		if err := e.sub.Dial(addr); err != nil {
-			log.Printf("[photonic] WARNING: connect to %s: %v", addr, err)
+			slog.Warn("connect failed", "component", "photonic", "address", addr, "error", err)
 		} else {
-			log.Printf("[photonic] SUB connected to %s", addr)
+			slog.Info("SUB connected", "component", "photonic", "address", addr)
 		}
 	}
 
@@ -98,7 +98,7 @@ func (e *Emitter) SetCouplingProvider(f func() string) {
 
 // Run starts the tonic emission loop. Blocks until context cancels.
 func (e *Emitter) Run(ctx context.Context) {
-	log.Printf("[photonic] emitter starting")
+	slog.Info("emitter starting", "component", "photonic")
 
 	for {
 		state := e.stateFunc()
@@ -106,7 +106,7 @@ func (e *Emitter) Run(ctx context.Context) {
 
 		select {
 		case <-ctx.Done():
-			log.Printf("[photonic] emitter shutting down")
+			slog.Info("emitter shutting down", "component", "photonic")
 			return
 		case <-time.After(interval):
 			e.emitTonic()
@@ -120,13 +120,13 @@ func (e *Emitter) emitTonic() {
 
 	data, err := json.Marshal(token)
 	if err != nil {
-		log.Printf("[photonic] marshal error: %v", err)
+		slog.Error("marshal error", "component", "photonic", "error", err)
 		return
 	}
 
 	msg := zmq4.NewMsgFrom([]byte("photonic"), data)
 	if err := e.pub.Send(msg); err != nil {
-		log.Printf("[photonic] emit error: %v", err)
+		slog.Error("emit error", "component", "photonic", "error", err)
 	}
 }
 

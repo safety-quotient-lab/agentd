@@ -20,7 +20,12 @@ SCP_CMD = scp -P $(DEPLOY_PORT)
 # Agent systemd units — one per agent
 AGENT_UNITS := agentd-psychology agentd-psq agentd-observatory agentd-unratified
 
-.PHONY: build deploy deploy-transfer deploy-restart deploy-validate status clean help
+# Gray-box (psy-session) — macOS arm64
+GRAYBOX_HOST := gray-box
+GRAYBOX_PATH := /Users/kashif/Projects/agentd/agentd
+GRAYBOX_PROJECT := /Users/kashif/Projects/psychology-agent
+
+.PHONY: build deploy deploy-transfer deploy-restart deploy-validate deploy-gray-box deploy-all status clean release help
 
 # ── Build ─────────────────────────────────────────────────────
 build:
@@ -69,13 +74,38 @@ deploy-validate:
 status:
 	@$(SSH_CMD) 'pgrep -f "platform/agentd" -la'
 
+# ── Gray-box Deploy (local — this machine runs psy-session) ──
+# Build output lands at ./agentd which is the same binary launchd runs.
+# Just rebuild, bounce launchd, and verify.
+deploy-gray-box: build
+	@echo ""
+	@echo "═══ Deploying agentd locally (psy-session on gray-box) ═══"
+	@launchctl unload $(HOME)/Library/LaunchAgents/dev.safety-quotient.agentd-psy-session.plist 2>/dev/null; sleep 1
+	@launchctl load $(HOME)/Library/LaunchAgents/dev.safety-quotient.agentd-psy-session.plist
+	@echo "  Binary rebuilt, launchd reloaded"
+	@sleep 3
+	@curl -sf https://psy-session.safety-quotient.dev/health && echo "  psy-session: OK" || echo "  psy-session: FAILED"
+
+deploy-all: deploy deploy-gray-box
+	@echo ""
+	@echo "All agents deployed (Chromabook + gray-box)."
+
+# ── Release (goreleaser) ─────────────────────────────────────
+release:
+	goreleaser release --snapshot --clean
+
+# ── Housekeeping ─────────────────────────────────────────────
 clean:
 	@rm -f agentd agentd-linux agentd-darwin
+	@rm -rf dist/
 
 help:
 	@echo "agentd Makefile ($(VERSION))"
 	@echo ""
-	@echo "  make build    Build linux/amd64 + darwin/arm64"
-	@echo "  make deploy   Build + transfer + restart + validate"
-	@echo "  make status   Show running agentd processes on $(DEPLOY_HOST)"
-	@echo "  make clean    Remove built binaries"
+	@echo "  make build         Build linux/amd64 + darwin/arm64"
+	@echo "  make deploy        Build + deploy to Chromabook (4 agents)"
+	@echo "  make deploy-gray-box  Build + deploy to gray-box (psy-session)"
+	@echo "  make deploy-all    Deploy to both Chromabook + gray-box"
+	@echo "  make release       Build snapshot via goreleaser"
+	@echo "  make status        Show running agentd processes"
+	@echo "  make clean         Remove built binaries"

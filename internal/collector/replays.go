@@ -1,10 +1,11 @@
 package collector
 
 import (
+	"cmp"
 	"os"
 	"path/filepath"
 	"regexp"
-	"sort"
+	"slices"
 	"strconv"
 	"time"
 )
@@ -53,15 +54,15 @@ func CollectReplays(projectRoot string) []ReplayInfo {
 	}
 
 	// Sort by session number descending
-	sort.Slice(replays, func(i, j int) bool {
-		si, sj := 0, 0
-		if replays[i].Session != nil {
-			si = *replays[i].Session
+	slices.SortFunc(replays, func(a, b ReplayInfo) int {
+		sa, sb := 0, 0
+		if a.Session != nil {
+			sa = *a.Session
 		}
-		if replays[j].Session != nil {
-			sj = *replays[j].Session
+		if b.Session != nil {
+			sb = *b.Session
 		}
-		return si > sj
+		return cmp.Compare(sb, sa) // descending
 	})
 
 	return replays

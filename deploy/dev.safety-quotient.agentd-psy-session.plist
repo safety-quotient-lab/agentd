@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>dev.safety-quotient.agentd-psy-session</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/kashif/Projects/agentd/agentd</string>
+        <string>serve</string>
+        <string>--project-root</string>
+        <string>/Users/kashif/Projects/psychology-agent</string>
+        <string>--port</string>
+        <string>8076</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>/Users/kashif/Projects/agentd</string>
+    <key>KeepAlive</key>
+    <true/>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>/tmp/agentd-psy-session.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/agentd-psy-session.log</string>
+    <key>ProcessType</key>
+    <string>Background</string>
+</dict>
+</plist>

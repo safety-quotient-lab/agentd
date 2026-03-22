@@ -6,7 +6,7 @@ package syncer
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"os/exec"
 	"strings"
 	"time"
@@ -61,36 +61,36 @@ func New(config Config, database, localDB *db.DB) *Syncer {
 // when activation exceeds threshold.
 func (s *Syncer) RunSync(ctx context.Context) error {
 	start := time.Now()
-	log.Printf("[syncer] === sync cycle starting ===")
+	slog.Info("sync cycle starting", "component", "syncer")
 
 	// 1. Budget check — halt if exhausted
 	status, err := s.budget.Check()
 	if err != nil {
-		log.Printf("[syncer] HALT — %v", err)
+		slog.Error("sync HALT", "component", "syncer", "error", err)
 		return err
 	}
 	if status.Sedated {
-		log.Printf("[syncer] agent sedated — skipping sync")
+		slog.Info("agent sedated — skipping sync", "component", "syncer")
 		return nil
 	}
-	log.Printf("[syncer] budget: %d/%d spent (cutoff 0=unlimited)",
-		status.Spent, status.Cutoff)
+	slog.Info("budget check passed", "component", "syncer",
+		"spent", status.Spent, "cutoff", status.Cutoff)
 
 	// 2. Interval check — defer if too soon
 	allowed, remaining := s.budget.CheckInterval(false)
 	if !allowed {
-		log.Printf("[syncer] DEFER — %s until next action allowed", remaining)
+		slog.Info("sync DEFER — interval not elapsed", "component", "syncer", "remaining", remaining)
 		return nil
 	}
 
 	// 3. Emit heartbeat (mesh presence)
 	if err := heartbeat.Emit(s.config.ProjectRoot, s.config.AgentID); err != nil {
-		log.Printf("[syncer] WARNING: heartbeat emit failed: %v", err)
+		slog.Warn("heartbeat emit failed", "component", "syncer", "error", err)
 	}
 
 	// 4. Git pull
 	if err := s.gitPull(ctx); err != nil {
-		log.Printf("[syncer] WARNING: git pull failed: %v", err)
+		slog.Warn("git pull failed", "component", "syncer", "error", err)
 		// Non-fatal — continue with local state
 	}
 
@@ -102,22 +102,23 @@ func (s *Syncer) RunSync(ctx context.Context) error {
 		totalNew += r.NewMessages
 	}
 	if totalNew > 0 {
-		log.Printf("[syncer] cross-repo: %d new messages from %d peers", totalNew, len(fetchResults))
+		slog.Info("cross-repo fetch completed", "component", "syncer",
+			"new_messages", totalNew, "peers", len(fetchResults))
 	}
 
 	// 6. Triage — auto-process trivial messages
 	triageResult, err := triage.Scan(s.db)
 	if err != nil {
-		log.Printf("[syncer] WARNING: triage failed: %v", err)
+		slog.Warn("triage failed", "component", "syncer", "error", err)
 	}
 
 	// 5. Pre-flight check — skip claude if nothing needs LLM
 	if triageResult.NeedsLLM == 0 && !triage.HasSubstance(s.db) {
-		log.Printf("[syncer] NO-OP — all messages handled deterministically")
+		slog.Info("sync NO-OP — all messages handled deterministically", "component", "syncer")
 		s.gitPush(ctx) // push any triage changes
 		s.budget.ResetConsecutiveBlocks()
-		log.Printf("[syncer] === sync cycle complete (no-op, %s) ===",
-			time.Since(start).Round(time.Millisecond))
+		slog.Info("sync cycle complete (no-op)", "component", "syncer",
+			"duration", time.Since(start).Round(time.Millisecond))
 		return nil
 	}
 
@@ -130,19 +131,21 @@ func (s *Syncer) RunSync(ctx context.Context) error {
 	syncDuration := time.Since(syncStart)
 
 	if err != nil {
-		log.Printf("[syncer] claude failed (%s): %v", syncDuration, err)
+		slog.Error("claude failed", "component", "syncer",
+			"duration", syncDuration, "error", err)
 
 		blocks := s.budget.IncrementConsecutiveBlocks()
 		if blocks >= s.config.MaxConsecutiveErrors {
-			log.Printf("[syncer] HALT — %d consecutive errors", blocks)
+			slog.Error("sync HALT — consecutive error limit reached",
+				"component", "syncer", "consecutive_errors", blocks)
 		}
 
 		s.budget.RecordAction("sync", fmt.Sprintf("sync failed (%s)", syncDuration), 1)
 		return fmt.Errorf("claude sync failed: %w", err)
 	}
 
-	log.Printf("[syncer] claude completed (%s, %d bytes output)",
-		syncDuration, len(output))
+	slog.Info("claude completed", "component", "syncer",
+		"duration", syncDuration, "output_bytes", len(output))
 
 	// 8. Record success + push
 	s.budget.RecordAction("sync",
@@ -150,12 +153,12 @@ func (s *Syncer) RunSync(ctx context.Context) error {
 	s.budget.ResetConsecutiveBlocks()
 
 	if err := s.gitPush(ctx); err != nil {
-		log.Printf("[syncer] WARNING: git push failed: %v", err)
+		slog.Warn("git push failed", "component", "syncer", "error", err)
 		s.budget.RecordAction("git_push", "push failed after sync", 1)
 	}
 
-	log.Printf("[syncer] === sync cycle complete (budget: %d, %s total) ===",
-		status.Spent+1, time.Since(start).Round(time.Millisecond))
+	slog.Info("sync cycle complete", "component", "syncer",
+		"budget_spent", status.Spent+1, "duration", time.Since(start).Round(time.Millisecond))
 	return nil
 }
 
@@ -216,7 +219,7 @@ func (s *Syncer) runClaude(ctx context.Context, orientation string) (string, err
 		}
 		// Check for max-turns (partial success)
 		if isMaxTurns(outStr) {
-			log.Printf("[syncer] WARNING: hit max-turns — partial sync")
+			slog.Warn("hit max-turns — partial sync", "component", "syncer")
 			return outStr, nil // partial success, not failure
 		}
 		return outStr, fmt.Errorf("claude exit: %w", err)

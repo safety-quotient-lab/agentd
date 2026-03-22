@@ -1,9 +1,11 @@
 package connection
 
 import (
+	"context"
 	"fmt"
 	"os/exec"
 	"strings"
+	"time"
 )
 
 // GitArchival implements ArchivalChannel over git.
@@ -21,7 +23,9 @@ func NewGitArchival(projectRoot, remoteName string) (*GitArchival, error) {
 		remoteName:  remoteName,
 	}
 	// Verify remote exists
-	cmd := exec.Command("git", "remote", "get-url", remoteName)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "git", "remote", "get-url", remoteName)
 	cmd.Dir = projectRoot
 	if err := cmd.Run(); err != nil {
 		return nil, fmt.Errorf("git remote %s not found: %w", remoteName, err)
@@ -33,13 +37,17 @@ func NewGitArchival(projectRoot, remoteName string) (*GitArchival, error) {
 // Uses git show (no checkout, no working tree modification).
 func (g *GitArchival) FetchState(path string) ([]byte, error) {
 	// Fetch latest from remote (lightweight)
-	fetchCmd := exec.Command("git", "fetch", g.remoteName, "main", "--quiet")
+	fetchCtx, fetchCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer fetchCancel()
+	fetchCmd := exec.CommandContext(fetchCtx, "git", "fetch", g.remoteName, "main", "--quiet")
 	fetchCmd.Dir = g.projectRoot
 	fetchCmd.Run() // best-effort — may fail if offline
 
 	// Show file content from remote
+	showCtx, showCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer showCancel()
 	ref := fmt.Sprintf("%s/main:%s", g.remoteName, path)
-	showCmd := exec.Command("git", "show", ref)
+	showCmd := exec.CommandContext(showCtx, "git", "show", ref)
 	showCmd.Dir = g.projectRoot
 	output, err := showCmd.Output()
 	if err != nil {
@@ -50,7 +58,9 @@ func (g *GitArchival) FetchState(path string) ([]byte, error) {
 
 // PeerHEAD returns the peer's current git HEAD commit hash.
 func (g *GitArchival) PeerHEAD() (string, error) {
-	cmd := exec.Command("git", "rev-parse", g.remoteName+"/main")
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "git", "rev-parse", g.remoteName+"/main")
 	cmd.Dir = g.projectRoot
 	output, err := cmd.Output()
 	if err != nil {

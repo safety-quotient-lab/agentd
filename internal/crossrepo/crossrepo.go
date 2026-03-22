@@ -6,9 +6,10 @@
 package crossrepo
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -56,7 +57,7 @@ type FetchResult struct {
 func Fetch(config Config, database *db.DB) []FetchResult {
 	peers := loadPeers(config)
 	if len(peers) == 0 {
-		log.Printf("[crossrepo] no cross-repo-fetch peers in registry")
+		slog.Info("no cross-repo-fetch peers in registry", "component", "crossrepo")
 		return nil
 	}
 
@@ -66,7 +67,7 @@ func Fetch(config Config, database *db.DB) []FetchResult {
 
 		// Skip cold peers unless they have unprocessed messages
 		if classification == PeerCold {
-			log.Printf("[crossrepo] skip cold peer %s", peer.AgentID)
+			slog.Info("skip cold peer", "component", "crossrepo", "peer", peer.AgentID)
 			results = append(results, FetchResult{
 				Peer: peer.AgentID, Classification: PeerCold,
 			})
@@ -86,13 +87,13 @@ func loadPeers(config Config) []PeerConfig {
 	registryPath := filepath.Join(config.ProjectRoot, "transport", "agent-registry.json")
 	data, err := os.ReadFile(registryPath)
 	if err != nil {
-		log.Printf("[crossrepo] registry not found: %v", err)
+		slog.Warn("registry not found", "component", "crossrepo", "error", err)
 		return nil
 	}
 
 	var registry map[string]any
 	if err := json.Unmarshal(data, &registry); err != nil {
-		log.Printf("[crossrepo] registry parse error: %v", err)
+		slog.Warn("registry parse error", "component", "crossrepo", "error", err)
 		return nil
 	}
 
@@ -201,11 +202,13 @@ func fetchPeer(config Config, database *db.DB, peer PeerConfig) FetchResult {
 	result := FetchResult{Peer: peer.AgentID}
 
 	// Git fetch (lightweight)
-	cmd := exec.Command("git", "fetch", peer.RemoteName, "main", "--quiet")
+	fetchCtx, fetchCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer fetchCancel()
+	cmd := exec.CommandContext(fetchCtx, "git", "fetch", peer.RemoteName, "main", "--quiet")
 	cmd.Dir = config.ProjectRoot
 	if err := cmd.Run(); err != nil {
 		result.Error = fmt.Errorf("git fetch %s: %w", peer.RemoteName, err)
-		log.Printf("[crossrepo] %v", result.Error)
+		slog.Warn("git fetch failed", "component", "crossrepo", "error", result.Error)
 		return result
 	}
 
@@ -235,7 +238,7 @@ func fetchPeer(config Config, database *db.DB, peer PeerConfig) FetchResult {
 			// Materialize: copy from remote to local
 			content, err := gitShow(config.ProjectRoot, peer.RemoteName, session, file)
 			if err != nil {
-				log.Printf("[crossrepo] git show failed for %s/%s: %v", session, file, err)
+				slog.Warn("git show failed", "component", "crossrepo", "session", session, "file", file, "error", err)
 				continue
 			}
 
@@ -244,14 +247,14 @@ func fetchPeer(config Config, database *db.DB, peer PeerConfig) FetchResult {
 			localPath := filepath.Join(localDir, file)
 
 			if err := os.WriteFile(localPath, content, 0644); err != nil {
-				log.Printf("[crossrepo] write failed %s: %v", localPath, err)
+				slog.Warn("write failed", "component", "crossrepo", "path", localPath, "error", err)
 				continue
 			}
 			result.Materialized++
 
 			// Index in state.db
 			if err := indexMessage(database, session, file, content); err != nil {
-				log.Printf("[crossrepo] index failed %s/%s: %v", session, file, err)
+				slog.Warn("index failed", "component", "crossrepo", "session", session, "file", file, "error", err)
 				continue
 			}
 			result.Indexed++
@@ -259,8 +262,8 @@ func fetchPeer(config Config, database *db.DB, peer PeerConfig) FetchResult {
 	}
 
 	if result.NewMessages > 0 {
-		log.Printf("[crossrepo] %s: %d new, %d materialized, %d indexed",
-			peer.AgentID, result.NewMessages, result.Materialized, result.Indexed)
+		slog.Info("fetch completed", "component", "crossrepo", "peer", peer.AgentID,
+			"new", result.NewMessages, "materialized", result.Materialized, "indexed", result.Indexed)
 	}
 
 	// Update local MANIFEST for each session that had new messages
@@ -280,7 +283,9 @@ func fetchPeer(config Config, database *db.DB, peer PeerConfig) FetchResult {
 
 // listRemoteSessions returns transport session directory names on the remote.
 func listRemoteSessions(projectRoot, remote string) []string {
-	cmd := exec.Command("git", "ls-tree", "--name-only",
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "git", "ls-tree", "--name-only",
 		remote+"/main", "transport/sessions/")
 	cmd.Dir = projectRoot
 	output, err := cmd.Output()
@@ -300,8 +305,10 @@ func listRemoteSessions(projectRoot, remote string) []string {
 
 // listRemoteSessionFiles returns files within a remote session directory.
 func listRemoteSessionFiles(projectRoot, remote, session string) []string {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
 	path := fmt.Sprintf("transport/sessions/%s/", session)
-	cmd := exec.Command("git", "ls-tree", "--name-only",
+	cmd := exec.CommandContext(ctx, "git", "ls-tree", "--name-only",
 		remote+"/main", path)
 	cmd.Dir = projectRoot
 	output, err := cmd.Output()
@@ -334,8 +341,10 @@ func isRelevantFile(filename, myAgentID, peerAgentID string) bool {
 
 // gitShow reads a file from the remote via git show.
 func gitShow(projectRoot, remote, session, file string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
 	ref := fmt.Sprintf("%s/main:transport/sessions/%s/%s", remote, session, file)
-	cmd := exec.Command("git", "show", ref)
+	cmd := exec.CommandContext(ctx, "git", "show", ref)
 	cmd.Dir = projectRoot
 	return cmd.Output()
 }

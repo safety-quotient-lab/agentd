@@ -7,7 +7,7 @@ package heartbeat
 import (
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -90,7 +90,7 @@ func Scan(projectRoot string) []PeerStatus {
 	dir := filepath.Join(projectRoot, HeartbeatDir)
 	entries, err := os.ReadDir(dir)
 	if err != nil {
-		log.Printf("[heartbeat] scan failed: %v", err)
+		slog.Warn("scan failed", "component", "heartbeat", "error", err)
 		return nil
 	}
 

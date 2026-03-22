@@ -6,7 +6,7 @@ package triage
 
 import (
 	"fmt"
-	"log"
+	"log/slog"
 	"time"
 
 	"github.com/safety-quotient-lab/agentd/internal/db"
@@ -60,7 +60,7 @@ func LoadLearnedTrivialTypes(database *db.DB) {
 		msgType := toString(row["message_type"])
 		if msgType != "" && !TrivialTypes[msgType] {
 			TrivialTypes[msgType] = true
-			log.Printf("[triage] gc_learning: promoted '%s' to auto-process (3+ consistent handlings)", msgType)
+			slog.Info("gc_learning: promoted to auto-process", "component", "triage", "message_type", msgType)
 		}
 	}
 }
@@ -121,15 +121,16 @@ func Scan(database *db.DB) (Result, error) {
 			 WHERE id = ?`,
 			now.Format("2006-01-02T15:04:05"), id)
 		if err != nil {
-			log.Printf("[triage] warning: failed to auto-process message %d: %v", id, err)
+			slog.Warn("failed to auto-process message", "component", "triage", "message_id", id, "error", err)
 			continue
 		}
 		result.Processed++
 	}
 
 	if result.Processed > 0 {
-		log.Printf("[triage] auto-processed %d messages (%d ack, %d skip). %d need LLM.",
-			result.Processed, result.AutoACK, result.AutoSkip, result.NeedsLLM)
+		slog.Info("auto-processed messages", "component", "triage",
+			"processed", result.Processed, "ack", result.AutoACK,
+			"skip", result.AutoSkip, "needs_llm", result.NeedsLLM)
 	}
 
 	return result, nil

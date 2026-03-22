@@ -1,12 +1,13 @@
 // Package migrate applies the canonical schema to state.db at startup.
-// The schema file (schema.sql) lives in platform/shared/scripts/ and
-// uses CREATE TABLE IF NOT EXISTS + INSERT OR IGNORE for idempotency.
-// agentd runs this at serve startup; bootstrap runs it at first creation.
+// The schema embeds into the binary via go:embed, eliminating external
+// file dependencies. Filesystem fallback checks scripts/schema.sql for
+// project-specific overrides.
 package migrate
 
 import (
+	_ "embed"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -14,31 +15,39 @@ import (
 	"github.com/safety-quotient-lab/agentd/internal/db"
 )
 
+//go:embed schema.sql
+var embeddedSchema string
+
 // Run applies schema.sql to the database idempotently.
 // The schema uses CREATE TABLE IF NOT EXISTS and INSERT OR IGNORE,
 // so running it multiple times produces no harm.
 func Run(database *db.DB, projectRoot string) error {
-	schemaPath := findSchema(projectRoot)
-	if schemaPath == "" {
-		return fmt.Errorf("schema.sql not found in %s", projectRoot)
+	// Prefer filesystem schema if present (project-specific overrides)
+	var script string
+	var source string
+	if schemaPath := findSchema(projectRoot); schemaPath != "" {
+		data, err := os.ReadFile(schemaPath)
+		if err != nil {
+			return fmt.Errorf("read schema.sql: %w", err)
+		}
+		script = string(data)
+		source = schemaPath
+	} else {
+		script = embeddedSchema
+		source = "embedded"
 	}
 
-	script, err := os.ReadFile(schemaPath)
-	if err != nil {
-		return fmt.Errorf("read schema.sql: %w", err)
-	}
-
-	log.Printf("[migrate] applying schema from %s (%d bytes)", schemaPath, len(script))
+	slog.Info("applying schema", "component", "migrate", "source", source, "bytes", len(script))
 
 	// Schema.sql contains both CREATE TABLE IF NOT EXISTS (idempotent) and
 	// ALTER TABLE ADD COLUMN (fails if column already exists). Split the
 	// script into individual statements and execute each, ignoring
 	// "duplicate column" errors from ALTER TABLE on subsequent runs.
-	if err := applyStatements(database, string(script)); err != nil {
+	if err := applyStatements(database, script); err != nil {
 		return fmt.Errorf("apply schema.sql: %w", err)
 	}
 
-	log.Printf("[migrate] schema applied successfully")
+	slog.Info("schema applied successfully", "component", "migrate")
 	return nil
 }
 
@@ -55,14 +64,10 @@ func applyStatements(database *db.DB, script string) error {
 		}
 		_, err := database.Exec(stmt)
 		if err != nil {
-			errMsg := err.Error()
-			// Duplicate column from ALTER TABLE = already migrated, skip
-			if contains(errMsg, "duplicate column") {
-				skipped++
-				continue
-			}
-			// Table already exists from CREATE TABLE (without IF NOT EXISTS) = skip
-			if contains(errMsg, "already exists") {
+			// SQLite (modernc.org/sqlite) does not expose typed errors for
+			// schema-already-exists conditions. String matching serves as
+			// last resort — wrapped in a named predicate for clarity.
+			if isSQLiteAlreadyMigratedError(err) {
 				skipped++
 				continue
 			}
@@ -70,7 +75,8 @@ func applyStatements(database *db.DB, script string) error {
 		}
 		applied++
 	}
-	log.Printf("[migrate] %d statements applied, %d skipped (already migrated)", applied, skipped)
+	slog.Info("migration statements executed",
+		"component", "migrate", "applied", applied, "skipped", skipped)
 	return nil
 }
 
@@ -141,8 +147,14 @@ func splitStatements(script string) []string {
 	return statements
 }
 
-func contains(s, substr string) bool {
-	return strings.Contains(strings.ToLower(s), strings.ToLower(substr))
+// isSQLiteAlreadyMigratedError detects errors from ALTER TABLE ADD COLUMN
+// or CREATE TABLE when the schema element already exists. The modernc.org/sqlite
+// driver does not expose typed errors for these conditions, so string matching
+// against the error message serves as the last resort.
+func isSQLiteAlreadyMigratedError(err error) bool {
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "duplicate column") ||
+		strings.Contains(msg, "already exists")
 }
 
 // findSchema locates schema.sql in the project directory tree.
