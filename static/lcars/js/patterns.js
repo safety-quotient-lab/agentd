@@ -416,6 +416,159 @@ lcars.patterns.alertCheck = function (coherence) {
     }
 };
 
+// ── P04: Sparkline ──────────────────────────────────────────
+// Inline SVG sparkline from a rolling value array.
+// options: { width, height, stroke, fill }
+lcars.patterns.sparkline = function (values, options) {
+    var opts = options || {};
+    var w = opts.width || 60, h = opts.height || 16;
+    var stroke = opts.stroke || "#9999ff", fill = opts.fill || "none";
+    if (!values || values.length < 2) {
+        return '<svg class="sparkline-svg" width="' + w + '" height="' + h + '" viewBox="0 0 ' + w + ' ' + h + '"></svg>';
+    }
+    var min = Infinity, max = -Infinity;
+    for (var i = 0; i < values.length; i++) {
+        if (values[i] < min) min = values[i];
+        if (values[i] > max) max = values[i];
+    }
+    var range = max - min || 1, pad = 1;
+    var points = [];
+    for (var j = 0; j < values.length; j++) {
+        var x = (j / (values.length - 1)) * (w - 2 * pad) + pad;
+        var y = h - pad - ((values[j] - min) / range) * (h - 2 * pad);
+        points.push(x.toFixed(1) + "," + y.toFixed(1));
+    }
+    var polyline = points.join(" ");
+    var lastPt = points[points.length - 1].split(",");
+    var fillPath = fill !== "none"
+        ? '<polygon points="' + pad + ',' + (h - pad) + ' ' + polyline + ' ' + (w - pad) + ',' + (h - pad) + '" fill="' + fill + '" opacity="0.2"/>'
+        : "";
+    return '<svg class="sparkline-svg" width="' + w + '" height="' + h + '" viewBox="0 0 ' + w + ' ' + h + '">' +
+        fillPath +
+        '<polyline points="' + polyline + '" fill="none" stroke="' + stroke + '" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>' +
+        '<circle cx="' + lastPt[0] + '" cy="' + lastPt[1] + '" r="2" fill="' + stroke + '"/>' +
+    '</svg>';
+};
+
+// ── P04: Waveform ───────────────────────────────────────────
+// Com Link pattern: composite oscillating signal between framing bars.
+// options: { width, height, amplitude (0-1), frequency, stroke, barColor }
+lcars.patterns.waveform = function (options) {
+    var opts = options || {};
+    var w = opts.width || 200, h = opts.height || 40;
+    var amplitude = opts.amplitude || 0.5;
+    var frequency = opts.frequency || 3;
+    var stroke = opts.stroke || "#ff9966";
+    var barColor = opts.barColor || "rgba(153,153,255,0.3)";
+    var pad = 2, midY = h / 2;
+    var maxAmp = (h / 2 - pad) * Math.min(1, amplitude);
+    var steps = Math.max(40, w);
+    var points = [];
+    for (var i = 0; i <= steps; i++) {
+        var x = pad + (i / steps) * (w - 2 * pad);
+        var t = (i / steps) * Math.PI * 2 * frequency;
+        var wave = Math.sin(t) * 0.7 + Math.sin(t * 2.3) * 0.2 + Math.sin(t * 5.1) * 0.1;
+        var y = midY - wave * maxAmp;
+        points.push(x.toFixed(1) + "," + y.toFixed(1));
+    }
+    return '<svg width="' + w + '" height="' + h + '" viewBox="0 0 ' + w + ' ' + h + '" style="display:block">' +
+        '<line x1="' + pad + '" y1="' + pad + '" x2="' + (w - pad) + '" y2="' + pad + '" stroke="' + barColor + '" stroke-width="2"/>' +
+        '<line x1="' + pad + '" y1="' + (h - pad) + '" x2="' + (w - pad) + '" y2="' + (h - pad) + '" stroke="' + barColor + '" stroke-width="2"/>' +
+        '<polyline points="' + points.join(" ") + '" fill="none" stroke="' + stroke + '" stroke-width="1.5" stroke-linejoin="round" opacity="' + Math.max(0.3, amplitude) + '"/>' +
+    '</svg>';
+};
+
+// ── P14: Vertical Level Gauge (block-style) ─────────────────
+// Stacked blocks with zone coloring (low/mid/high).
+// options: { maxBlocks, inverted, labels }
+lcars.patterns.vlevelGauge = function (value, options) {
+    var opts = options || {};
+    var maxBlocks = opts.maxBlocks || 7;
+    var inverted = opts.inverted || false;
+    var labels = opts.labels || null;
+    var level = Math.max(0, Math.min(maxBlocks, Math.round(value * maxBlocks)));
+    var html = '<div class="lcars-vlevel-gauge">';
+    for (var i = 1; i <= maxBlocks; i++) {
+        var isLit = i <= level;
+        var isCurrent = i === level;
+        var pct = i / maxBlocks;
+        var zone;
+        if (inverted) {
+            zone = pct <= 0.4 ? "zone-low" : pct <= 0.7 ? "zone-mid" : "zone-high";
+        } else {
+            zone = pct <= 0.3 ? "zone-low" : pct <= 0.7 ? "zone-mid" : "zone-high";
+        }
+        var classes = "vlevel-block";
+        if (isLit) classes += " lit " + zone;
+        if (isCurrent) classes += " current " + zone;
+        var label = labels ? labels[i - 1] : i;
+        html += '<div class="' + classes + '">' + label + '</div>';
+    }
+    html += '</div>';
+    return html;
+};
+
+// ── Tracked Value (delta-aware text update) ─────────────────
+// Updates an element's text with formatted value + inline delta arrow.
+// options: { format: "int"|"float"|"pct"|"ratio", inverted, suffix, prefix, showDelta }
+lcars.patterns._prevValues = {};
+lcars.patterns.trackedValue = function (elementId, value, options) {
+    var el = document.getElementById(elementId);
+    if (!el) return;
+    var opts = options || {};
+    var format = opts.format || "int";
+    var inverted = opts.inverted || false;
+    var suffix = opts.suffix || "";
+    var prefix = opts.prefix || "";
+    var showDelta = opts.showDelta !== false;
+
+    if (value == null) { el.textContent = "—"; return; }
+
+    var displayVal;
+    switch (format) {
+        case "float": displayVal = value.toFixed(2); break;
+        case "pct": displayVal = Math.round(value * 100) + "%"; break;
+        case "ratio": displayVal = value.toFixed(1); break;
+        default: displayVal = Math.round(value).toString(); break;
+    }
+
+    var prev = lcars.patterns._prevValues[elementId];
+    lcars.patterns._prevValues[elementId] = value;
+
+    var deltaHtml = "";
+    if (showDelta && prev != null) {
+        var diff = value - prev;
+        if (Math.abs(diff) > 0.001) {
+            var isGood = inverted ? diff < 0 : diff > 0;
+            var isBad = inverted ? diff > 0 : diff < 0;
+            var arrow = diff > 0 ? "\u2191" : "\u2193";
+            var color = isGood ? "#6aab8e" : isBad ? "#c47070" : "var(--text-dim)";
+            var diffStr;
+            switch (format) {
+                case "float": diffStr = Math.abs(diff).toFixed(2); break;
+                case "pct": diffStr = Math.abs(Math.round(diff * 100)) + "%"; break;
+                case "ratio": diffStr = Math.abs(diff).toFixed(1); break;
+                default: diffStr = Math.abs(Math.round(diff)).toString(); break;
+            }
+            deltaHtml = ' <span style="font-size:0.6em;color:' + color + ';font-weight:400">' + arrow + diffStr + '</span>';
+        }
+    }
+    el.innerHTML = prefix + displayVal + suffix + deltaHtml;
+};
+
+// ── Sparkline History Buffer ────────────────────────────────
+// Rolling window of 20 values per key for sparkline rendering.
+lcars.patterns._sparkHistory = {};
+lcars.patterns.pushSparkValue = function (key, value) {
+    if (value == null || isNaN(value)) return;
+    if (!lcars.patterns._sparkHistory[key]) lcars.patterns._sparkHistory[key] = [];
+    lcars.patterns._sparkHistory[key].push(value);
+    if (lcars.patterns._sparkHistory[key].length > 20) lcars.patterns._sparkHistory[key].shift();
+};
+lcars.patterns.getSparkHistory = function (key) {
+    return lcars.patterns._sparkHistory[key] || [];
+};
+
 // ── Utility: Panel Placeholder ──────────────────────────────
 lcars.patterns.placeholder = function (containerId, message) {
     var el = document.getElementById(containerId);
