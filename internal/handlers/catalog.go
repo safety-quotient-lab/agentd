@@ -152,16 +152,6 @@ func APICatalog() http.HandlerFunc {
 				Pattern:    "P14",
 			},
 			{
-				Type:         "Dataset",
-				ID:           "/api/kb",
-				Name:         "Knowledge Base",
-				Description:  "Decisions, triggers, claims, messages, lessons, epistemic flags, catalog, memory",
-				Distribution: dist("/api/kb"),
-				Station:      "science",
-				UpdateRate:   "session",
-				Pattern:      "P07,P11",
-			},
-			{
 				Type:        "Dataset",
 				ID:          "/api/agent/governance/decisions",
 				Name:        "Architecture Decisions",

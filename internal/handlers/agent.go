@@ -90,10 +90,12 @@ func APIAgentTransport(cache *collector.Cache) http.HandlerFunc {
 	}
 }
 
-// APIAgentTransportMessages serves GET /api/agent/transport/messages —
-// replaces /kb/messages with REST-correct path.
+// APIAgentTransportMessages serves GET /api/agent/transport/messages.
 func APIAgentTransportMessages(cache *collector.Cache) http.HandlerFunc {
-	return APIKBMessages(cache) // same handler, new route
+	return func(w http.ResponseWriter, r *http.Request) {
+		setAPIHeaders(w, r)
+		json.NewEncoder(w).Encode(cache.KnowledgeBase().Messages)
+	}
 }
 
 // APIAgentGovernance serves GET /api/agent/governance — budget, actions,
@@ -122,12 +124,18 @@ func APIAgentGovernance(cache *collector.Cache) http.HandlerFunc {
 
 // APIAgentGovernanceDecisions serves GET /api/agent/governance/decisions.
 func APIAgentGovernanceDecisions(cache *collector.Cache) http.HandlerFunc {
-	return APIKBDecisions(cache)
+	return func(w http.ResponseWriter, r *http.Request) {
+		setAPIHeaders(w, r)
+		json.NewEncoder(w).Encode(cache.KnowledgeBase().Decisions)
+	}
 }
 
 // APIAgentGovernanceTriggers serves GET /api/agent/governance/triggers.
 func APIAgentGovernanceTriggers(cache *collector.Cache) http.HandlerFunc {
-	return APIKBTriggers(cache)
+	return func(w http.ResponseWriter, r *http.Request) {
+		setAPIHeaders(w, r)
+		json.NewEncoder(w).Encode(cache.KnowledgeBase().Triggers)
+	}
 }
 
 // APIAgentCognitive serves GET /api/agent/cognitive — summary of oscillator,
@@ -177,20 +185,32 @@ func APIAgentKnowledge(cache *collector.Cache) http.HandlerFunc {
 
 // APIAgentKnowledgeClaims serves GET /api/agent/knowledge/claims.
 func APIAgentKnowledgeClaims(cache *collector.Cache) http.HandlerFunc {
-	return APIKBClaims(cache)
+	return func(w http.ResponseWriter, r *http.Request) {
+		setAPIHeaders(w, r)
+		json.NewEncoder(w).Encode(cache.KnowledgeBase().Claims)
+	}
 }
 
 // APIAgentKnowledgeLessons serves GET /api/agent/knowledge/lessons.
 func APIAgentKnowledgeLessons(cache *collector.Cache) http.HandlerFunc {
-	return APIKBLessons(cache)
+	return func(w http.ResponseWriter, r *http.Request) {
+		setAPIHeaders(w, r)
+		json.NewEncoder(w).Encode(cache.KnowledgeBase().Lessons)
+	}
 }
 
 // APIAgentKnowledgeEpistemic serves GET /api/agent/knowledge/epistemic.
 func APIAgentKnowledgeEpistemic(cache *collector.Cache) http.HandlerFunc {
-	return APIKBEpistemic(cache)
+	return func(w http.ResponseWriter, r *http.Request) {
+		setAPIHeaders(w, r)
+		json.NewEncoder(w).Encode(cache.KnowledgeBase().EpistemicFlags)
+	}
 }
 
 // APIAgentKnowledgeMemory serves GET /api/agent/knowledge/memory.
 func APIAgentKnowledgeMemory(cache *collector.Cache) http.HandlerFunc {
-	return APIKBMemory(cache)
+	return func(w http.ResponseWriter, r *http.Request) {
+		setAPIHeaders(w, r)
+		json.NewEncoder(w).Encode(cache.KnowledgeBase().Memory)
+	}
 }
