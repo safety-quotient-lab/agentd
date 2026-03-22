@@ -1,0 +1,19 @@
+# Compiled binaries
+agentd
+agentd-*
+
+# SQLite state layer (rebuilt from bootstrap)
+state.db
+state.db-wal
+state.db-shm
+state.local.db
+state.local.db-*
+
+# IDE
+.DS_Store
+.idea/
+.vscode/
+
+# Environment
+.env
+.dev.vars
