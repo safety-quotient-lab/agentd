@@ -68,23 +68,52 @@
         }
     }
 
-    // ── SSE subscription ────────────────────────────────────
-    function connectSSE() {
-        var sseUrl = lcars.catalog.url("Event Stream");
-        if (!sseUrl) sseUrl = "/events";
+    // ── Real-time connection (WebSocket preferred, SSE fallback) ──
+    var ws = null;
+    function connectRealtime() {
+        // Prefer WebSocket for Cloudflare Tunnel compatibility
+        var wsProto = location.protocol === "https:" ? "wss:" : "ws:";
+        var wsUrl = wsProto + "//" + location.host + "/ws";
 
-        if (eventSource) {
-            eventSource.close();
+        try {
+            ws = new WebSocket(wsUrl);
+            ws.onmessage = function (evt) {
+                try {
+                    var data = JSON.parse(evt.data);
+                    if (data.event === "refresh") {
+                        refreshStation(activeStation);
+                    }
+                } catch (e) {
+                    // Non-JSON message (ping) — ignore
+                }
+            };
+            ws.onclose = function () {
+                console.warn("[ws] Connection closed, reconnecting in 5s...");
+                ws = null;
+                setTimeout(connectRealtime, 5000);
+            };
+            ws.onerror = function () {
+                // WebSocket failed — fall back to SSE
+                console.warn("[ws] WebSocket failed, falling back to SSE");
+                ws.close();
+                ws = null;
+                connectSSE();
+            };
+        } catch (e) {
+            // WebSocket not available — use SSE
+            connectSSE();
         }
+    }
+
+    function connectSSE() {
+        var sseUrl = "/events";
+        if (eventSource) eventSource.close();
 
         eventSource = new EventSource(sseUrl);
         eventSource.onmessage = function () {
-            // Cache generation changed — refresh active station
             refreshStation(activeStation);
         };
         eventSource.onerror = function () {
-            // Reconnect after delay (EventSource auto-reconnects,
-            // but log for visibility)
             console.warn("[sse] Connection lost, reconnecting...");
         };
     }
@@ -133,8 +162,8 @@
                 // Agent identity unavailable — use defaults
             });
 
-            // Connect SSE
-            connectSSE();
+            // Connect real-time (WebSocket preferred, SSE fallback)
+            connectRealtime();
 
             // Fallback periodic refresh
             startPeriodicRefresh();
