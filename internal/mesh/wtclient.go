@@ -54,7 +54,10 @@ func NewWTClient(agentID, meshAddr string, logger *slog.Logger) *WTClient {
 		meshAddr: meshAddr,
 		logger:   logger,
 		dialer: webtransport.Dialer{
-			TLSClientConfig: &tls.Config{RootCAs: pool},
+			TLSClientConfig: &tls.Config{
+				RootCAs:            pool,
+				InsecureSkipVerify: true, // localhost dev — cert rotates every 14 days
+			},
 		},
 	}
 }
