@@ -19,6 +19,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/quic-go/quic-go"
 	"github.com/quic-go/webtransport-go"
 )
 
@@ -57,6 +58,12 @@ func NewWTClient(agentID, meshAddr string, logger *slog.Logger) *WTClient {
 			TLSClientConfig: &tls.Config{
 				RootCAs:            pool,
 				InsecureSkipVerify: true, // localhost dev — cert rotates every 14 days
+			},
+			QUICConfig: &quic.Config{
+				MaxIdleTimeout:                   5 * time.Minute,
+				KeepAlivePeriod:                  15 * time.Second, // QUIC-level PING frames prevent idle timeout
+				EnableDatagrams:                  true,             // required by webtransport-go
+				EnableStreamResetPartialDelivery: true,             // required by webtransport-go
 			},
 		},
 	}
