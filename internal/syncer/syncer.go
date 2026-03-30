@@ -204,10 +204,10 @@ func (s *Syncer) runClaude(ctx context.Context, orientation string) (string, err
 		prompt = orientation + "\n\n/sync"
 	}
 
-	cmd := exec.CommandContext(ctx, "claude", "-p", prompt,
-		"--allowedTools", s.config.AllowedTools,
-		"--permission-mode", "bypassPermissions",
-		"--max-turns", fmt.Sprintf("%d", s.config.MaxTurns))
+	cmd := exec.CommandContext(ctx, "claude", "-p",
+		"--dangerously-skip-permissions",
+		"--max-turns", fmt.Sprintf("%d", s.config.MaxTurns),
+		prompt)
 	cmd.Dir = s.config.ProjectRoot
 
 	output, err := cmd.CombinedOutput()

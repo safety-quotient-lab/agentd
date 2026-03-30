@@ -70,16 +70,14 @@ func ComputeActivation(signals ActivationSignals) float64 {
 	return activation
 }
 
-// normalizeCount converts a count to 0.0-1.0 range.
-// 0 = 0.0, 3+ = 1.0, linear in between.
+// normalizeCount converts a count to binary presence: 0 or 1.
+// One message = work that needs doing. The weight (0.20) determines
+// contribution to activation — the signal represents demand presence.
 func normalizeCount(count int) float64 {
 	if count <= 0 {
 		return 0.0
 	}
-	if count >= 3 {
-		return 1.0
-	}
-	return float64(count) / 3.0
+	return 1.0
 }
 
 // ReadSignals queries state.db for the current activation signals.
