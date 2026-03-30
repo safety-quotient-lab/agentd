@@ -40,7 +40,7 @@ func DefaultConfig(projectRoot string) Config {
 	return Config{
 		BaselineThreshold:         0.30,
 		RefractoryBase:            5 * time.Minute,
-		MonitorInterval:           30 * time.Second,
+		MonitorInterval:           60 * time.Second, // agents cycle slower than coordinator (meshd: 15s)
 		ManualSessionBehavior:     "dmn",
 		ManualSessionSentinelFile: "/tmp/claude-session-psychology-agent",
 		ProjectRoot:               projectRoot,
